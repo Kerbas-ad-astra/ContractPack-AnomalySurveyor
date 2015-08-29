@@ -118,11 +118,6 @@ namespace AnomalySurveyor
         }
         public bool ChildChanged { get; set; }
 
-        private const string STARJEB_MESSAGE =
-@"And so it was that {0} became an immortal being known as ""The Star Jeb"".  After the Star Jeb's transcendence, the Jool monolith disappeared - no one knows if it will ever reappear.
-
-As for the Star Jeb, they have the ability to advance Kerbal science and the Kerbal Space Program to great new heights.  However, they've done absolutely nothing.  In fact, rumor has it that the Star Jeb hasn’t even called their mother.";
-
         private const float MONOLITH_DRAW_DISTANCE = 500000;
         private const float MONOLITH_DISCOVERY_DISTANCE = 50000;
         private const float MONOLITH_TOO_CLOSE = 2000;
@@ -139,6 +134,10 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
         private VelocityHandler velHdlr;
         private ConfigNode progressTreeBackup = null;
         private double eveLatitude, eveLongitude;
+
+        ParameterDelegate<MonolithParameter> evaParam;
+        ParameterDelegate<MonolithParameter> approachParam;
+        ParameterDelegate<MonolithParameter> fullofstarsParam;
 
         public Vector3? velocity = null;
         public Vector3? Destination
@@ -180,20 +179,45 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
             if (ParameterCount < 1)
             {
                 LoggingUtil.LogVerbose(this, "Adding EVA parameter...");
-                AddParameter(new ParameterDelegate<MonolithParameter>("Send a Kerbal on EVA", x => CheckParameters(MonolithState.STARTED)));
-            }
+                evaParam = new ParameterDelegate<MonolithParameter>("Send a Kerbal on EVA", x => CheckParameters(MonolithState.STARTED));
+                AddParameter(evaParam);
 
-            if (ParameterCount < 2 && currentState >= MonolithState.EVA)
-            {
                 LoggingUtil.LogVerbose(this, "Adding approach parameter...");
-                AddParameter(new ParameterDelegate<MonolithParameter>("Approach the monolith with " + candidateName,
-                    x => CheckParameters(MonolithState.EVA)));
+                approachParam = new ParameterDelegate<MonolithParameter>("", x => !approachParam.hidden && CheckParameters(MonolithState.EVA));
+                approachParam.hidden = true;
+                AddParameter(approachParam);
+
+                LoggingUtil.LogVerbose(this, "Adding 'full of stars' parameter...");
+                fullofstarsParam = new ParameterDelegate<MonolithParameter>("...it's full of stars!", x => !fullofstarsParam.hidden && CheckParameters(MonolithState.FULL_OF_STARS_FINAL));
+                fullofstarsParam.hidden = true;
+                AddParameter(fullofstarsParam);
             }
 
-            if (ParameterCount < 3 && currentState >= MonolithState.FULL_OF_STARS1)
+            bool changeMade = false;
+            if (currentState >= MonolithState.EVA)
             {
-                LoggingUtil.LogVerbose(this, "Adding 'full of stars' parameter...");
-                AddParameter(new ParameterDelegate<MonolithParameter>("...it's full of stars!", x => CheckParameters(MonolithState.FULL_OF_STARS_FINAL)));
+                LoggingUtil.LogVerbose(this, "Unhiding approach parameter...");
+                if (approachParam.hidden)
+                {
+                    approachParam.SetTitle("Approach the monolith with " + candidateName);
+                    changeMade = true;
+                    approachParam.hidden = false;
+                }
+            }
+
+            if (currentState >= MonolithState.FULL_OF_STARS1)
+            {
+                LoggingUtil.LogVerbose(this, "Unhiding 'full of stars' parameter...");
+                if (fullofstarsParam.hidden)
+                {
+                    changeMade = true;
+                    fullofstarsParam.hidden = false;
+                }
+            }
+
+            if (changeMade)
+            {
+                ContractConfigurator.ContractConfigurator.OnParameterChange.Fire(Root, this);
             }
         }
 
@@ -229,6 +253,7 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
                         candidate = FlightGlobals.ActiveVessel;
                         candidateName = candidate.vesselName;
                         LoggingUtil.LogVerbose(this, "Got an eva, starJeb = " + candidate.vesselName);
+                        nextState();
                         return true;
                     }
                     return false;
@@ -241,7 +266,9 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
                         {
                             starJeb = candidate;
                             starJebName = candidateName;
+                            PersistentDataStore.Instance.Store<string>("starJebName", starJebName);
                             candidate = null;
+                            nextState();
                             return true;
                         }
                     }
@@ -635,8 +662,7 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
                     }
                     return false;
                 case MonolithState.FULL_OF_STARS_FINAL:
-                    MessageSystem.Instance.AddMessage(new MessageSystem.Message("The Star Jeb is Born", String.Format(STARJEB_MESSAGE, starJebName),
-                        MessageSystemButton.MessageButtonColor.GREEN, MessageSystemButton.ButtonIcons.MESSAGE));
+                    nextState();
                     return true;
                 default:
                     return false;
@@ -828,11 +854,7 @@ As for the Star Jeb, they have the ability to advance Kerbal science and the Ker
                 SetLoadDistance();
 
                 // Check our script progress
-                if (ParameterDelegate<MonolithParameter>.CheckChildConditions(this, this))
-                {
-                    nextState();
-                    ContractConfigurator.ContractConfigurator.OnParameterChange.Fire(Root, this);
-                }
+                ParameterDelegate<MonolithParameter>.CheckChildConditions(this, this);
 
                 if (ChildChanged)
                 {
